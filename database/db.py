@@ -3,13 +3,25 @@ import json
 import logging
 from pathlib import Path
 
-from config import DB_FILE
+from config import DB_FILE, BASE_DIR, IS_VERCEL
 
 logger = logging.getLogger(__name__)
 
 
 def init_db():
     """Initialize the database with outfits and favorites tables."""
+    
+    # If on Vercel and using /tmp, copy the initial DB from source if it exists
+    if IS_VERCEL and str(DB_FILE).startswith("/tmp") and not DB_FILE.exists():
+        source_db = BASE_DIR / "outfits.db"
+        if source_db.exists():
+            try:
+                import shutil
+                shutil.copy2(source_db, DB_FILE)
+                logger.info(f"Copied initial database from {source_db} to {DB_FILE}")
+            except Exception as e:
+                logger.error(f"Failed to copy database: {e}")
+
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
 
