@@ -51,13 +51,9 @@ def on_startup():
 app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
 
 # Enable CORS
-# Get allowed origins from environment, default to localhost for development
-allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",")
-allowed_origins = [origin.strip() for origin in allowed_origins]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins,
+    allow_origins=["*"], # Allow all origins to fix CORS issues
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
