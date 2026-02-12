@@ -42,6 +42,18 @@ app = FastAPI(
     version="0.1.0",
 )
 
+# Enable CORS (placed immediately after app creation)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://fashionrecommenderai.netlify.app",
+        "http://localhost:5173",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Startup event (clean DB init)
 @app.on_event("startup")
 def on_startup():
@@ -50,14 +62,7 @@ def on_startup():
 # Mount uploads directory
 app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
 
-# Enable CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"], # Allow all origins to fix CORS issues
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# (CORS middleware moved to immediately after app creation)
 
 # Root endpoint
 @app.get("/")
