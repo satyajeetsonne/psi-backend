@@ -133,7 +133,7 @@ async def upload_outfit(
         "success": True,
         "data": {
             "id": outfit_id,
-            "image_url": f"{API_BASE_URL}/uploads/{file_path.name}",
+            "image_url": f"/uploads/{file_path.name}",
             "name": name or file.filename,
             "tags": [t.strip() for t in tags.split(",") if t.strip()],
         },
