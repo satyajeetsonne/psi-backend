@@ -1,5 +1,6 @@
 """
 Backend - FastAPI Application
+Version: 1.0.1 (cleaned imports)
 """
 
 import os
