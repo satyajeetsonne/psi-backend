@@ -95,19 +95,18 @@ def is_outfit_favorited(outfit_id: str, user_id: str) -> bool:
 def get_user_favorites(user_id: str) -> list:
     """Retrieve all favorited outfits for a user with user's own outfits only."""
     try:
-        with sqlite3.connect(DB_FILE) as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT o.id, o.image_path, o.name, o.tags, o.created_at
-                FROM outfits o
-                INNER JOIN favorites f ON o.id = f.outfit_id
-                WHERE f.user_id = ? AND o.user_id = ?
-                ORDER BY f.created_at DESC
-                """,
-                (user_id, user_id),
-            )
-            return cursor.fetchall() or []
+        result = execute_query(
+            """
+            SELECT o.id, o.image_filename, o.name, o.tags, o.created_at
+            FROM outfits o
+            INNER JOIN favorites f ON o.id = f.outfit_id
+            WHERE f.user_id = %s AND o.user_id = %s
+            ORDER BY f.created_at DESC
+            """,
+            (user_id, user_id),
+            fetch=True
+        )
+        return result or []
     except Exception:
         logger.exception("Database error fetching favorites for user %s", user_id)
         return []
