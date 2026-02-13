@@ -1,12 +1,11 @@
 import json
-import sqlite3
 import logging
 from typing import Optional
 from fastapi import APIRouter, HTTPException
 import google.generativeai as genai
 
-from config import DB_FILE
 from database.db import get_user_completed_outfits
+from database.postgres import execute_query_one
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -15,17 +14,15 @@ logger = logging.getLogger(__name__)
 def get_outfit_from_db(outfit_id: str) -> Optional[tuple]:
     """Retrieve outfit from database."""
     try:
-        with sqlite3.connect(DB_FILE) as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT id, name, analysis_results, user_id
-                FROM outfits
-                WHERE id = ?
-                """,
-                (outfit_id,),
-            )
-            return cursor.fetchone()
+        result = execute_query_one(
+            """
+            SELECT id, name, analysis_results, user_id
+            FROM outfits
+            WHERE id = %s
+            """,
+            (outfit_id,),
+        )
+        return result
     except Exception:
         logger.exception("Database error fetching outfit %s", outfit_id)
         return None

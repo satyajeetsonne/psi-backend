@@ -1,9 +1,8 @@
-import sqlite3
 import logging
 from fastapi import APIRouter, HTTPException, Body
 
-from config import DB_FILE
 from database.db import get_outfit_tags, save_outfit_tags
+from database.postgres import execute_query_one
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -35,13 +34,13 @@ def validate_tag(tag: str) -> str:
 def verify_outfit_ownership(outfit_id: str, user_id: str) -> bool:
     """Verify that a user owns an outfit."""
     try:
-        with sqlite3.connect(DB_FILE) as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT user_id FROM outfits WHERE id = ?", (outfit_id,))
-            result = cursor.fetchone()
-            if not result:
-                return False
-            return result[0] == user_id
+        result = execute_query_one(
+            "SELECT user_id FROM outfits WHERE id = %s",
+            (outfit_id,)
+        )
+        if not result:
+            return False
+        return result[0] == user_id
     except Exception:
         logger.exception("Error verifying outfit ownership")
         return False

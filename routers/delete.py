@@ -1,10 +1,9 @@
-import sqlite3
 import logging
 from pathlib import Path
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 
-from config import DB_FILE
+from database.postgres import execute_query_one, get_db_connection
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -19,33 +18,31 @@ def delete_outfit_from_db(outfit_id: str, user_id: str) -> Optional[str]:
     Returns image_path if deleted.
     """
     try:
-        with sqlite3.connect(DB_FILE) as conn:
-            cursor = conn.cursor()
+        outfit = execute_query_one(
+            "SELECT id, user_id, image_path FROM outfits WHERE id = %s",
+            (outfit_id,),
+        )
 
-            cursor.execute(
-                "SELECT id, user_id, image_path FROM outfits WHERE id = ?",
-                (outfit_id,),
+        if not outfit:
+            raise HTTPException(status_code=404, detail="Outfit not found")
+
+        if outfit[1] != user_id:
+            raise HTTPException(
+                status_code=403,
+                detail="You do not have permission to delete this outfit",
             )
-            outfit = cursor.fetchone()
 
-            if not outfit:
-                raise HTTPException(status_code=404, detail="Outfit not found")
+        image_path = outfit[2]
 
-            if outfit[1] != user_id:
-                raise HTTPException(
-                    status_code=403,
-                    detail="You do not have permission to delete this outfit",
-                )
-
-            image_path = outfit[2]
-
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
             cursor.execute(
-                "DELETE FROM outfits WHERE id = ?",
+                "DELETE FROM outfits WHERE id = %s",
                 (outfit_id,),
             )
             conn.commit()
 
-            return image_path
+        return image_path
 
     except HTTPException:
         raise
