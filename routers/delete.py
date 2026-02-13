@@ -62,7 +62,7 @@ def delete_outfit_from_db(outfit_id: str, user_id: str) -> Optional[Tuple[str, s
 @router.delete("/api/outfits/{outfit_id}")
 async def delete_outfit(
     outfit_id: str,
-    user_id: str = Query(..., description="User ID of the outfit owner"),
+    user_id: str = Query(...),
 ):
     if not outfit_id.strip():
         raise HTTPException(status_code=400, detail="outfit_id is required")
@@ -70,16 +70,34 @@ async def delete_outfit(
     if not user_id.strip():
         raise HTTPException(status_code=400, detail="user_id is required")
 
-    result = delete_outfit_from_db(outfit_id, user_id)
+    outfit = execute_query_one(
+        "SELECT id, user_id, image_path FROM outfits WHERE id = %s",
+        (outfit_id,),
+    )
 
-    # Delete image from Cloudinary (non-fatal if fails)
-    if result and result[1]:
-        cloudinary_public_id = result[1]
+    if not outfit:
+        raise HTTPException(status_code=404, detail="Outfit not found")
+
+    if outfit[1] != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    image_url = outfit[2]
+
+    # Delete from DB
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM outfits WHERE id = %s", (outfit_id,))
+        conn.commit()
+
+    # Extract public_id from URL and delete from Cloudinary
+    if image_url:
         try:
-            delete_image_from_cloudinary(cloudinary_public_id)
-            logger.info("Deleted image from Cloudinary: %s", cloudinary_public_id)
+            # Extract public_id
+            parts = image_url.split("/upload/")[-1]
+            public_id = parts.split(".")[0]
+            delete_image_from_cloudinary(public_id)
         except Exception:
-            logger.warning("Could not delete image from Cloudinary: %s", cloudinary_public_id)
+            logger.warning("Failed to delete from Cloudinary")
 
     return {
         "success": True,
