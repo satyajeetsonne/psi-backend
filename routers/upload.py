@@ -79,7 +79,7 @@ def compress_image(file_content: bytes, filename: str, max_size_kb: int = 500) -
         return file_content
 
 
-
+def validate_file(file, file_content):
     """Validate uploaded file type and size."""
     file_ext = Path(file.filename).suffix.lower()
 
