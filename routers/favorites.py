@@ -77,16 +77,14 @@ def remove_favorite(outfit_id: str, user_id: str) -> bool:
 def is_outfit_favorited(outfit_id: str, user_id: str) -> bool:
     """Check if outfit is favorited by user."""
     try:
-        with sqlite3.connect(DB_FILE) as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT 1 FROM favorites
-                WHERE user_id = ? AND outfit_id = ?
-                """,
-                (user_id, outfit_id),
-            )
-            return cursor.fetchone() is not None
+        result = execute_query_one(
+            """
+            SELECT 1 FROM favorites
+            WHERE user_id = %s AND outfit_id = %s
+            """,
+            (user_id, outfit_id),
+        )
+        return result is not None
     except Exception:
         logger.exception("Database error checking favorite status")
         return False
@@ -97,7 +95,7 @@ def get_user_favorites(user_id: str) -> list:
     try:
         result = execute_query(
             """
-            SELECT o.id, o.image_filename, o.name, o.tags, o.created_at
+            SELECT o.id, o.image_path, o.name, o.tags, o.created_at
             FROM outfits o
             INNER JOIN favorites f ON o.id = f.outfit_id
             WHERE f.user_id = %s AND o.user_id = %s
@@ -114,10 +112,10 @@ def get_user_favorites(user_id: str) -> list:
 
 def format_outfit(outfit_tuple: tuple) -> dict:
     """Format outfit response."""
-    filename = outfit_tuple[1]  # image_filename from DB
+    image_url = outfit_tuple[1]  # image_path from DB (Cloudinary URL)
     return {
         "id": outfit_tuple[0],
-        "image_url": f"/uploads/{filename}",
+        "image_url": image_url,
         "name": outfit_tuple[2],
         "tags": [tag.strip() for tag in outfit_tuple[3].split(",")]
         if outfit_tuple[3]

@@ -5,7 +5,7 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, BackgroundTasks
 
 from utils.llm import analyze_outfit_image
-from config import UPLOADS_DIR
+from utils.cloudinary_upload import upload_image_to_cloudinary
 from database.postgres import execute_query
 
 router = APIRouter()
@@ -37,24 +37,14 @@ def validate_file(file: UploadFile, file_content: bytes) -> tuple[bool, str]:
     return True, ""
 
 
-def save_file_to_disk(file_content: bytes, file_ext: str) -> tuple[str, Path]:
-    """Save file to disk and return outfit_id and file path."""
-    outfit_id = str(uuid.uuid4())
-    filename = f"{outfit_id}{file_ext}"
-    file_path = UPLOADS_DIR / filename
-
-    with open(file_path, "wb") as f:
-        f.write(file_content)
-
-    return outfit_id, file_path
-
-
 def save_outfit_to_db(
     outfit_id: str,
     user_id: str,
-    file_path: Path,
+    image_url: str,
+    image_filename: str,
     name: str,
-    tags: str
+    tags: str,
+    cloudinary_public_id: str
 ) -> None:
     """Save outfit metadata to database."""
     execute_query(
@@ -74,8 +64,8 @@ def save_outfit_to_db(
         (
             outfit_id,
             user_id,
-            str(file_path),
-            file_path.name,
+            image_url,  # Store Cloudinary URL instead of file path
+            cloudinary_public_id,  # Store public_id for deletion
             name,
             tags,
             datetime.utcnow(),
@@ -107,32 +97,43 @@ async def upload_outfit(
     is_valid, error_msg = validate_file(file, file_content)
     if not is_valid:
         raise HTTPException(status_code=400, detail=error_msg)
+    # Upload to Cloudinary
+    result = upload_image_to_cloudinary(file_content, file.filename)
+    if not result:
+        raise HTTPException(status_code=500, detail="Failed to upload image to cloud storage")
 
-    file_ext = Path(file.filename).suffix.lower()
-    outfit_id, file_path = save_file_to_disk(file_content, file_ext)
+    image_url = result.get("url")
+    cloudinary_public_id = result.get("public_id")
+    
+    if not image_url or not cloudinary_public_id:
+        raise HTTPException(status_code=500, detail="Invalid response from cloud storage")
+
+    # Generate outfit ID
+    outfit_id = str(uuid.uuid4())
 
     try:
+        # Save to database (Cloudinary URL stored as image_path)
         save_outfit_to_db(
             outfit_id=outfit_id,
             user_id=user_id,
-            file_path=file_path,
+            image_url=image_url,
+            image_filename=cloudinary_public_id,
             name=name or file.filename,
             tags=tags,
+            cloudinary_public_id=cloudinary_public_id,
         )
     except Exception:
         logger.exception("Failed to save outfit %s to database", outfit_id)
-        if file_path.exists():
-            file_path.unlink()
         raise HTTPException(status_code=500, detail="Failed to save outfit metadata")
 
     # Run AI analysis in background
-    background_tasks.add_task(analyze_outfit_image, str(file_path), outfit_id)
+    background_tasks.add_task(analyze_outfit_image, image_url, outfit_id)
 
     return {
         "success": True,
         "data": {
             "id": outfit_id,
-            "image_url": f"/uploads/{file_path.name}",
+            "image_url": image_url,
             "name": name or file.filename,
             "tags": [t.strip() for t in tags.split(",") if t.strip()],
         },

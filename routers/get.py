@@ -31,7 +31,7 @@ def get_outfit_from_db(outfit_id: str) -> Optional[tuple]:
     try:
         result = execute_query_one(
             """
-            SELECT id, image_filename, name, tags, created_at, user_id,
+            SELECT id, image_path, name, tags, created_at, user_id,
                    COALESCE(analysis_status, 'pending') AS analysis_status,
                    analysis_results
             FROM outfits
@@ -50,7 +50,7 @@ def format_outfit_detail(outfit_tuple: tuple, user_id: str) -> Optional[dict]:
     if not outfit_tuple:
         return None
 
-    filename = outfit_tuple[1]  # image_filename from DB
+    image_url = outfit_tuple[1]  # image_path from DB (Cloudinary URL)
     analysis_status = outfit_tuple[6] or "pending"
     analysis = None
 
@@ -62,7 +62,7 @@ def format_outfit_detail(outfit_tuple: tuple, user_id: str) -> Optional[dict]:
 
     return {
         "id": outfit_tuple[0],
-        "image_url": f"/uploads/{filename}",
+        "image_url": image_url,
         "name": outfit_tuple[2],
         "tags": [tag.strip() for tag in outfit_tuple[3].split(",")]
         if outfit_tuple[3]

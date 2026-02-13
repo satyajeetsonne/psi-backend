@@ -3,6 +3,8 @@ import base64
 import logging
 from pathlib import Path
 from typing import List
+from urllib import request as urllib_request
+from urllib.error import URLError
 
 import google.generativeai as genai
 
@@ -76,23 +78,43 @@ def convert_color_names_to_hex(colors: List[str]) -> List[str]:
 def analyze_outfit_image(image_path: str, outfit_id: str) -> None:
     """
     Analyze an outfit image using Gemini Vision API.
+    Supports both local file paths and URLs (e.g., Cloudinary URLs).
     This function MUST NEVER crash the app.
     """
 
     logger.info("Starting analysis for outfit %s", outfit_id)
 
     try:
-        # Read image
-        with open(image_path, "rb") as img:
-            image_data = base64.b64encode(img.read()).decode("utf-8")
-
-        ext = Path(image_path).suffix.lower()
-        mime_type = {
-            ".jpg": "image/jpeg",
-            ".jpeg": "image/jpeg",
-            ".png": "image/png",
-            ".webp": "image/webp",
-        }.get(ext, "image/jpeg")
+        # Determine if it's a URL or file path
+        if image_path.startswith("http://") or image_path.startswith("https://"):
+            # Download image from URL
+            try:
+                with urllib_request.urlopen(image_path) as response:
+                    image_data = base64.b64encode(response.read()).decode("utf-8")
+                # Detect MIME type from content-type header
+                content_type = response.headers.get("Content-Type", "image/jpeg")
+                mime_type = content_type.split(";")[0].strip()
+            except URLError as e:
+                logger.error("Failed to download image from URL %s: %s", image_path, e)
+                update_analysis_status(outfit_id, "failed", json.dumps({"error": f"Failed to download image: {str(e)}"}))
+                return
+        else:
+            # Read local file
+            try:
+                with open(image_path, "rb") as img:
+                    image_data = base64.b64encode(img.read()).decode("utf-8")
+            except FileNotFoundError:
+                logger.error("Image file not found: %s", image_path)
+                update_analysis_status(outfit_id, "failed", json.dumps({"error": "Image file not found"}))
+                return
+            
+            ext = Path(image_path).suffix.lower()
+            mime_type = {
+                ".jpg": "image/jpeg",
+                ".jpeg": "image/jpeg",
+                ".png": "image/png",
+                ".webp": "image/webp",
+            }.get(ext, "image/jpeg")
 
         model = genai.GenerativeModel("gemini-2.5-flash")
 

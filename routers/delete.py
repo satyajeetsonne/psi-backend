@@ -1,9 +1,10 @@
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 from fastapi import APIRouter, HTTPException, Query
 
 from database.postgres import execute_query_one, get_db_connection
+from utils.cloudinary_upload import delete_image_from_cloudinary
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -12,14 +13,14 @@ logger = logging.getLogger(__name__)
 # =========================
 # DB helper
 # =========================
-def delete_outfit_from_db(outfit_id: str, user_id: str) -> Optional[str]:
+def delete_outfit_from_db(outfit_id: str, user_id: str) -> Optional[Tuple[str, str]]:
     """
     Delete an outfit after verifying ownership.
-    Returns image_path if deleted.
+    Returns tuple of (image_path, cloudinary_public_id) if deleted.
     """
     try:
         outfit = execute_query_one(
-            "SELECT id, user_id, image_path FROM outfits WHERE id = %s",
+            "SELECT id, user_id, image_path, image_filename FROM outfits WHERE id = %s",
             (outfit_id,),
         )
 
@@ -33,6 +34,7 @@ def delete_outfit_from_db(outfit_id: str, user_id: str) -> Optional[str]:
             )
 
         image_path = outfit[2]
+        cloudinary_public_id = outfit[3]
 
         with get_db_connection() as conn:
             cursor = conn.cursor()
@@ -42,7 +44,7 @@ def delete_outfit_from_db(outfit_id: str, user_id: str) -> Optional[str]:
             )
             conn.commit()
 
-        return image_path
+        return (image_path, cloudinary_public_id)
 
     except HTTPException:
         raise
@@ -68,17 +70,16 @@ async def delete_outfit(
     if not user_id.strip():
         raise HTTPException(status_code=400, detail="user_id is required")
 
-    image_path = delete_outfit_from_db(outfit_id, user_id)
+    result = delete_outfit_from_db(outfit_id, user_id)
 
-    # Delete image file (non-fatal if fails)
-    if image_path:
+    # Delete image from Cloudinary (non-fatal if fails)
+    if result and result[1]:
+        cloudinary_public_id = result[1]
         try:
-            image_file = Path(image_path)
-            if image_file.exists():
-                image_file.unlink()
-                logger.info("Deleted image file: %s", image_path)
+            delete_image_from_cloudinary(cloudinary_public_id)
+            logger.info("Deleted image from Cloudinary: %s", cloudinary_public_id)
         except Exception:
-            logger.warning("Could not delete image file: %s", image_path)
+            logger.warning("Could not delete image from Cloudinary: %s", cloudinary_public_id)
 
     return {
         "success": True,

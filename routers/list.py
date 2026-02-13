@@ -14,7 +14,7 @@ def get_user_outfits(user_id: str) -> Optional[list]:
     try:
         result = execute_query(
             """
-            SELECT id, image_filename, name, tags, created_at
+            SELECT id, image_path, name, tags, created_at
             FROM outfits
             WHERE user_id = %s
             ORDER BY created_at DESC
@@ -30,10 +30,10 @@ def get_user_outfits(user_id: str) -> Optional[list]:
 
 def format_outfit(outfit_tuple: tuple) -> dict:
     """Format outfit response."""
-    filename = outfit_tuple[1]  # image_filename from DB
+    image_url = outfit_tuple[1]  # image_path from DB (Cloudinary URL)
     return {
         "id": outfit_tuple[0],
-        "image_url": f"/uploads/{filename}",
+        "image_url": image_url,
         "name": outfit_tuple[2],
         "tags": [tag.strip() for tag in outfit_tuple[3].split(",")]
         if outfit_tuple[3]
