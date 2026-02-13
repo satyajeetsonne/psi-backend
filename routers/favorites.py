@@ -3,7 +3,7 @@ import logging
 from pathlib import Path
 from fastapi import APIRouter, HTTPException
 
-from config import DB_FILE, API_BASE_URL
+from config import DB_FILE
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -122,7 +122,7 @@ def format_outfit(outfit_tuple: tuple) -> dict:
     filename = Path(outfit_tuple[1]).name
     return {
         "id": outfit_tuple[0],
-        "image_url": f"{API_BASE_URL}/uploads/{filename}",
+        "image_url": f"/uploads/{filename}",
         "name": outfit_tuple[2],
         "tags": [tag.strip() for tag in outfit_tuple[3].split(",")]
         if outfit_tuple[3]

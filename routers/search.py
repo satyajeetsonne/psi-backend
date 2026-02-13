@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Query
 
-from config import API_BASE_URL
+# No config imports needed
 from database.db import search_outfits
 
 router = APIRouter()
@@ -14,7 +14,7 @@ def format_outfit(outfit_tuple: tuple) -> dict:
     filename = Path(outfit_tuple[1]).name
     return {
         "id": outfit_tuple[0],
-        "image_url": f"{API_BASE_URL}/uploads/{filename}",
+        "image_url": f"/uploads/{filename}",
         "name": outfit_tuple[2],
         "tags": [tag.strip() for tag in outfit_tuple[3].split(",")]
         if outfit_tuple[3]
