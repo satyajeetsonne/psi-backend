@@ -1,9 +1,8 @@
-import sqlite3
 import logging
 from pathlib import Path
 from fastapi import APIRouter, HTTPException
 
-from config import DB_FILE
+from database.postgres import execute_query, execute_query_one, get_db_connection
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -15,16 +14,13 @@ logger = logging.getLogger(__name__)
 def verify_outfit_ownership(outfit_id: str, user_id: str) -> bool:
     """Check if user owns the outfit."""
     try:
-        with sqlite3.connect(DB_FILE) as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT user_id FROM outfits WHERE id = ?",
-                (outfit_id,),
-            )
-            result = cursor.fetchone()
-            if not result:
-                return False
-            return result[0] == user_id
+        result = execute_query_one(
+            "SELECT user_id FROM outfits WHERE id = %s",
+            (outfit_id,),
+        )
+        if not result:
+            return False
+        return result[0] == user_id
     except Exception:
         logger.exception("Database error verifying outfit ownership")
         return False
@@ -33,21 +29,23 @@ def verify_outfit_ownership(outfit_id: str, user_id: str) -> bool:
 def add_favorite(outfit_id: str, user_id: str) -> bool:
     """Add outfit to user's favorites. Returns True if added, False if already favorited."""
     try:
-        with sqlite3.connect(DB_FILE) as conn:
+        with get_db_connection() as conn:
             cursor = conn.cursor()
             try:
                 cursor.execute(
                     """
                     INSERT INTO favorites (user_id, outfit_id)
-                    VALUES (?, ?)
+                    VALUES (%s, %s)
                     """,
                     (user_id, outfit_id),
                 )
                 conn.commit()
                 return True
-            except sqlite3.IntegrityError:
-                # Already favorited
-                return False
+            except Exception as e:
+                # Check if it's a unique constraint violation
+                if "unique" in str(e).lower():
+                    return False
+                raise
     except Exception:
         logger.exception("Database error adding favorite")
         raise HTTPException(
@@ -59,12 +57,12 @@ def add_favorite(outfit_id: str, user_id: str) -> bool:
 def remove_favorite(outfit_id: str, user_id: str) -> bool:
     """Remove outfit from user's favorites. Returns True if removed, False if not found."""
     try:
-        with sqlite3.connect(DB_FILE) as conn:
+        with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
                 DELETE FROM favorites
-                WHERE user_id = ? AND outfit_id = ?
+                WHERE user_id = %s AND outfit_id = %s
                 """,
                 (user_id, outfit_id),
             )
@@ -76,8 +74,6 @@ def remove_favorite(outfit_id: str, user_id: str) -> bool:
             status_code=500,
             detail="Database error while removing favorite",
         )
-
-
 def is_outfit_favorited(outfit_id: str, user_id: str) -> bool:
     """Check if outfit is favorited by user."""
     try:
@@ -119,7 +115,7 @@ def get_user_favorites(user_id: str) -> list:
 
 def format_outfit(outfit_tuple: tuple) -> dict:
     """Format outfit response."""
-    filename = Path(outfit_tuple[1]).name
+    filename = outfit_tuple[1]  # image_filename from DB
     return {
         "id": outfit_tuple[0],
         "image_url": f"/uploads/{filename}",

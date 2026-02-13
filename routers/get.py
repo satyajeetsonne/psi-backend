@@ -1,11 +1,10 @@
 import json
-import sqlite3
 import logging
 from pathlib import Path
 from typing import Optional
 from fastapi import APIRouter, HTTPException
 
-from config import DB_FILE
+from database.postgres import execute_query, execute_query_one
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -14,16 +13,14 @@ logger = logging.getLogger(__name__)
 def is_outfit_favorited(outfit_id: str, user_id: str) -> bool:
     """Check if outfit is favorited by user."""
     try:
-        with sqlite3.connect(DB_FILE) as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT 1 FROM favorites
-                WHERE user_id = ? AND outfit_id = ?
-                """,
-                (user_id, outfit_id),
-            )
-            return cursor.fetchone() is not None
+        result = execute_query_one(
+            """
+            SELECT 1 FROM favorites
+            WHERE user_id = %s AND outfit_id = %s
+            """,
+            (user_id, outfit_id),
+        )
+        return result is not None
     except Exception:
         logger.exception("Database error checking favorite status")
         return False
@@ -32,19 +29,17 @@ def is_outfit_favorited(outfit_id: str, user_id: str) -> bool:
 def get_outfit_from_db(outfit_id: str) -> Optional[tuple]:
     """Retrieve outfit from database."""
     try:
-        with sqlite3.connect(DB_FILE) as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT id, image_path, name, tags, created_at, user_id,
-                       COALESCE(analysis_status, 'pending') AS analysis_status,
-                       analysis_results
-                FROM outfits
-                WHERE id = ?
-                """,
-                (outfit_id,),
-            )
-            return cursor.fetchone()
+        result = execute_query_one(
+            """
+            SELECT id, image_filename, name, tags, created_at, user_id,
+                   COALESCE(analysis_status, 'pending') AS analysis_status,
+                   analysis_results
+            FROM outfits
+            WHERE id = %s
+            """,
+            (outfit_id,),
+        )
+        return result
     except Exception:
         logger.exception("Database error fetching outfit %s", outfit_id)
         return None
@@ -55,7 +50,7 @@ def format_outfit_detail(outfit_tuple: tuple, user_id: str) -> Optional[dict]:
     if not outfit_tuple:
         return None
 
-    filename = Path(outfit_tuple[1]).name
+    filename = outfit_tuple[1]  # image_filename from DB
     analysis_status = outfit_tuple[6] or "pending"
     analysis = None
 

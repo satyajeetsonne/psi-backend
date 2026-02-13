@@ -2,8 +2,7 @@ import logging
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Query
 
-# No config imports needed
-from database.db import search_outfits
+from database.postgres import execute_query
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -11,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 def format_outfit(outfit_tuple: tuple) -> dict:
     """Format outfit response."""
-    filename = Path(outfit_tuple[1]).name
+    filename = outfit_tuple[1]  # image_filename from DB
     return {
         "id": outfit_tuple[0],
         "image_url": f"/uploads/{filename}",
@@ -42,11 +41,22 @@ async def search_outfits_endpoint(user_id: str = Query(...), q: str = Query(...)
     if not q.strip():
         raise HTTPException(status_code=400, detail="q (search query) is required")
     
-    outfits = search_outfits(user_id, q)
+    # Search in name and tags
+    search_pattern = f"%{q}%"
+    outfits = execute_query(
+        """
+        SELECT id, image_filename, name, tags, created_at, analysis_results
+        FROM outfits
+        WHERE user_id = %s AND (name ILIKE %s OR tags ILIKE %s)
+        ORDER BY created_at DESC
+        """,
+        (user_id, search_pattern, search_pattern),
+        fetch=True
+    )
     
     return {
         "success": True,
         "query": q,
-        "count": len(outfits),
-        "data": [format_outfit(outfit) for outfit in outfits],
+        "count": len(outfits) if outfits else 0,
+        "data": [format_outfit(outfit) for outfit in outfits] if outfits else [],
     }

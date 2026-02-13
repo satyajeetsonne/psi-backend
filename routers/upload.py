@@ -1,12 +1,12 @@
 import uuid
-import sqlite3
 import logging
 from pathlib import Path
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, BackgroundTasks
 
 from utils.llm import analyze_outfit_image
-from config import DB_FILE, API_BASE_URL, UPLOADS_DIR
+from config import UPLOADS_DIR
+from database.postgres import execute_query
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -57,32 +57,31 @@ def save_outfit_to_db(
     tags: str
 ) -> None:
     """Save outfit metadata to database."""
-    with sqlite3.connect(DB_FILE) as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            INSERT INTO outfits (
-                id,
-                user_id,
-                image_path,
-                name,
-                tags,
-                created_at,
-                analysis_status
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                outfit_id,
-                user_id,
-                str(file_path),
-                name,
-                tags,
-                datetime.utcnow(),
-                "pending",
-            ),
+    execute_query(
+        """
+        INSERT INTO outfits (
+            id,
+            user_id,
+            image_path,
+            image_filename,
+            name,
+            tags,
+            created_at,
+            analysis_status
         )
-        conn.commit()
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        """,
+        (
+            outfit_id,
+            user_id,
+            str(file_path),
+            file_path.name,
+            name,
+            tags,
+            datetime.utcnow(),
+            "pending",
+        ),
+    )
 
 
 # =========================

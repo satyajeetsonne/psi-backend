@@ -1,10 +1,9 @@
-import sqlite3
 import logging
 from pathlib import Path
 from typing import Optional
 from fastapi import APIRouter, HTTPException
 
-from config import DB_FILE
+from database.postgres import execute_query
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -13,18 +12,17 @@ logger = logging.getLogger(__name__)
 def get_user_outfits(user_id: str) -> Optional[list]:
     """Retrieve all outfits for a user."""
     try:
-        with sqlite3.connect(DB_FILE) as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT id, image_path, name, tags, created_at
-                FROM outfits
-                WHERE user_id = ?
-                ORDER BY created_at DESC
-                """,
-                (user_id,),
-            )
-            return cursor.fetchall()
+        result = execute_query(
+            """
+            SELECT id, image_filename, name, tags, created_at
+            FROM outfits
+            WHERE user_id = %s
+            ORDER BY created_at DESC
+            """,
+            (user_id,),
+            fetch=True
+        )
+        return result
     except Exception:
         logger.exception("Database error fetching outfits for user %s", user_id)
         return None
@@ -32,7 +30,7 @@ def get_user_outfits(user_id: str) -> Optional[list]:
 
 def format_outfit(outfit_tuple: tuple) -> dict:
     """Format outfit response."""
-    filename = Path(outfit_tuple[1]).name
+    filename = outfit_tuple[1]  # image_filename from DB
     return {
         "id": outfit_tuple[0],
         "image_url": f"/uploads/{filename}",

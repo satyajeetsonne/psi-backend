@@ -22,7 +22,7 @@ genai.configure(api_key=api_key)
 
 # Local imports
 from config import UPLOADS_DIR
-from database.db import init_db
+from database.postgres import init_db
 from routers import (
     health,
     quotes,

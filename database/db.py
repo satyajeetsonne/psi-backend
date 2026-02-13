@@ -1,75 +1,16 @@
-import sqlite3
 import json
 import logging
 from pathlib import Path
 
-from config import DB_FILE, BASE_DIR, IS_VERCEL
+from .postgres import execute_query, execute_query_one, get_db_connection
 
 logger = logging.getLogger(__name__)
 
 
 def init_db():
-    """Initialize the database with outfits and favorites tables."""
-    
-    # If on Vercel and using /tmp, copy the initial DB from source if it exists
-    if IS_VERCEL and str(DB_FILE).startswith("/tmp") and not DB_FILE.exists():
-        source_db = BASE_DIR / "outfits.db"
-        if source_db.exists():
-            try:
-                import shutil
-                shutil.copy2(source_db, DB_FILE)
-                logger.info(f"Copied initial database from {source_db} to {DB_FILE}")
-            except Exception as e:
-                logger.error(f"Failed to copy database: {e}")
-
-    with sqlite3.connect(DB_FILE) as conn:
-        cursor = conn.cursor()
-
-        # Create outfits table if it doesn't exist
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS outfits (
-                id TEXT PRIMARY KEY,
-                user_id TEXT NOT NULL,
-                image_path TEXT NOT NULL,
-                name TEXT,
-                tags TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                analysis_status TEXT DEFAULT 'pending',
-                analysis_results TEXT
-            )
-            """
-        )
-
-        # Check existing columns in outfits
-        cursor.execute("PRAGMA table_info(outfits)")
-        columns = {row[1] for row in cursor.fetchall()}
-
-        if "analysis_status" not in columns:
-            cursor.execute(
-                "ALTER TABLE outfits ADD COLUMN analysis_status TEXT DEFAULT 'pending'"
-            )
-
-        if "analysis_results" not in columns:
-            cursor.execute(
-                "ALTER TABLE outfits ADD COLUMN analysis_results TEXT"
-            )
-
-        # Create favorites table if it doesn't exist
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS favorites (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id TEXT NOT NULL,
-                outfit_id TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (outfit_id) REFERENCES outfits(id),
-                UNIQUE(user_id, outfit_id)
-            )
-            """
-        )
-
-        conn.commit()
+    """Initialize the database - handled by postgres.py"""
+    # This is now handled in postgres.py
+    pass
 
 
 def update_analysis_status(outfit_id: str, status: str, results: dict | None = None):
@@ -77,21 +18,15 @@ def update_analysis_status(outfit_id: str, status: str, results: dict | None = N
     Update the analysis status and results in the database.
     """
     try:
-        with sqlite3.connect(DB_FILE) as conn:
-            cursor = conn.cursor()
-
-            analysis_json = json.dumps(results) if results else None
-
-            cursor.execute(
-                """
-                UPDATE outfits
-                SET analysis_status = ?, analysis_results = ?
-                WHERE id = ?
-                """,
-                (status, analysis_json, outfit_id),
-            )
-
-            conn.commit()
+        analysis_json = json.dumps(results) if results else None
+        execute_query(
+            """
+            UPDATE outfits
+            SET analysis_status = %s, analysis_results = %s
+            WHERE id = %s
+            """,
+            (status, analysis_json, outfit_id),
+        )
     except Exception:
         logger.exception(
             "Error updating analysis status for outfit %s", outfit_id
@@ -104,18 +39,17 @@ def get_user_completed_outfits(user_id: str) -> list:
     Used for matching suggestions context.
     """
     try:
-        with sqlite3.connect(DB_FILE) as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT id, name, analysis_results
-                FROM outfits
-                WHERE user_id = ? AND analysis_status = 'completed'
-                ORDER BY created_at DESC
-                """,
-                (user_id,),
-            )
-            return cursor.fetchall() or []
+        result = execute_query(
+            """
+            SELECT id, name, analysis_results
+            FROM outfits
+            WHERE user_id = %s AND analysis_status = 'completed'
+            ORDER BY created_at DESC
+            """,
+            (user_id,),
+            fetch=True
+        )
+        return result or []
     except Exception:
         logger.exception(
             "Error fetching completed outfits for user %s", user_id
@@ -126,13 +60,13 @@ def get_user_completed_outfits(user_id: str) -> list:
 def get_outfit_tags(outfit_id: str) -> list[str]:
     """Get tags for an outfit as a list of strings."""
     try:
-        with sqlite3.connect(DB_FILE) as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT tags FROM outfits WHERE id = ?", (outfit_id,))
-            result = cursor.fetchone()
-            if not result or not result[0]:
-                return []
-            return [tag.strip() for tag in result[0].split(",") if tag.strip()]
+        result = execute_query_one(
+            "SELECT tags FROM outfits WHERE id = %s",
+            (outfit_id,)
+        )
+        if not result or not result[0]:
+            return []
+        return [tag.strip() for tag in result[0].split(",") if tag.strip()]
     except Exception:
         logger.exception("Error fetching tags for outfit %s", outfit_id)
         return []
@@ -141,15 +75,12 @@ def get_outfit_tags(outfit_id: str) -> list[str]:
 def save_outfit_tags(outfit_id: str, tags: list[str]) -> bool:
     """Save tags for an outfit as comma-separated string."""
     try:
-        with sqlite3.connect(DB_FILE) as conn:
-            cursor = conn.cursor()
-            tags_str = ",".join(tags) if tags else ""
-            cursor.execute(
-                "UPDATE outfits SET tags = ? WHERE id = ?",
-                (tags_str, outfit_id),
-            )
-            conn.commit()
-            return True
+        tags_str = ",".join(tags) if tags else ""
+        execute_query(
+            "UPDATE outfits SET tags = %s WHERE id = %s",
+            (tags_str, outfit_id),
+        )
+        return True
     except Exception:
         logger.exception("Error saving tags for outfit %s", outfit_id)
         return False
@@ -166,20 +97,19 @@ def get_user_context(user_id: str) -> dict:
     """
     try:
         outfits = []
-        with sqlite3.connect(DB_FILE) as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT id, name, tags, analysis_results
-                FROM outfits
-                WHERE user_id = ? AND analysis_status = 'completed'
-                ORDER BY created_at DESC
-                """,
-                (user_id,),
-            )
-            rows = cursor.fetchall() or []
-
-            for r in rows:
+        outfits_result = execute_query(
+            """
+            SELECT id, name, tags, analysis_results
+            FROM outfits
+            WHERE user_id = %s AND analysis_status = 'completed'
+            ORDER BY created_at DESC
+            """,
+            (user_id,),
+            fetch=True
+        )
+        
+        if outfits_result:
+            for r in outfits_result:
                 oid, name, tags_str, analysis_json = r
                 try:
                     analysis = json.loads(analysis_json) if analysis_json else None
@@ -195,13 +125,13 @@ def get_user_context(user_id: str) -> dict:
                     "analysis": analysis,
                 })
 
-            # Favorites
-            cursor.execute(
-                "SELECT outfit_id FROM favorites WHERE user_id = ?",
-                (user_id,),
-            )
-            fav_rows = cursor.fetchall() or []
-            favorites = [r[0] for r in fav_rows]
+        # Favorites
+        fav_result = execute_query(
+            "SELECT outfit_id FROM favorites WHERE user_id = %s",
+            (user_id,),
+            fetch=True
+        )
+        favorites = [r[0] for r in fav_result] if fav_result else []
 
         # Simple inferred preferences: tally styles and colors from analysis
         inferred = {"styles": {}, "colors": {}}
@@ -228,27 +158,25 @@ def search_outfits(user_id: str, query: str) -> list:
         query: The search query text
     
     Returns:
-        List of matching outfits (id, image_path, name, tags, created_at, analysis_results)
+        List of matching outfits (id, image_filename, name, tags, created_at, analysis_results)
     """
     try:
-        with sqlite3.connect(DB_FILE) as conn:
-            cursor = conn.cursor()
-            # Search through tags and analysis_results using LIKE for case-insensitive matching
-            search_pattern = f"%{query}%"
-            cursor.execute(
-                """
-                SELECT id, image_path, name, tags, created_at, analysis_results
-                FROM outfits
-                WHERE user_id = ? AND (
-                    tags LIKE ? OR 
-                    name LIKE ? OR 
-                    analysis_results LIKE ?
-                )
-                ORDER BY created_at DESC
-                """,
-                (user_id, search_pattern, search_pattern, search_pattern),
+        search_pattern = f"%{query}%"
+        result = execute_query(
+            """
+            SELECT id, image_filename, name, tags, created_at, analysis_results
+            FROM outfits
+            WHERE user_id = %s AND (
+                tags ILIKE %s OR 
+                name ILIKE %s OR 
+                analysis_results ILIKE %s
             )
-            return cursor.fetchall() or []
+            ORDER BY created_at DESC
+            """,
+            (user_id, search_pattern, search_pattern, search_pattern),
+            fetch=True
+        )
+        return result or []
     except Exception:
         logger.exception("Error searching outfits for user %s with query %s", user_id, query)
         return []
