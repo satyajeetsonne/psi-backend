@@ -4,11 +4,20 @@ Version: 1.0.1 (cleaned imports)
 """
 
 import os
+import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 import google.generativeai as genai
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
@@ -19,6 +28,25 @@ if not api_key:
     raise RuntimeError("GOOGLE_API_KEY not set. Please add it to your .env file.")
 
 genai.configure(api_key=api_key)
+
+# Validate required environment variables
+required_env_vars = {
+    "DATABASE_URL": "PostgreSQL database connection string",
+    "GOOGLE_API_KEY": "Google Generative AI API key",
+    "CLOUDINARY_CLOUD_NAME": "Cloudinary cloud name",
+    "CLOUDINARY_API_KEY": "Cloudinary API key",
+    "CLOUDINARY_API_SECRET": "Cloudinary API secret",
+}
+
+missing_vars = []
+for var_name, var_desc in required_env_vars.items():
+    if not os.getenv(var_name):
+        missing_vars.append(f"{var_name} ({var_desc})")
+
+if missing_vars:
+    logger.warning(f"Missing environment variables: {', '.join(missing_vars)}")
+else:
+    logger.info("All required environment variables are set")
 
 # Local imports
 from config import UPLOADS_DIR
@@ -58,12 +86,28 @@ app.add_middleware(
 
 @app.options("/{full_path:path}")
 async def preflight_handler(full_path: str):
-    return {}
+    """Handle CORS preflight requests"""
+    return {"message": "OK"}
 
-# Startup event (clean DB init)
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    """Global exception handler for unhandled errors"""
+    logger.exception(f"Unhandled exception: {str(exc)}")
+    return JSONResponse(
+        status_code=500,
+        content={"success": False, "detail": "Internal server error"},
+    )
+
 @app.on_event("startup")
 def on_startup():
-    init_db()
+    try:
+        logger.info("Starting up application...")
+        init_db()
+        logger.info("Application startup complete")
+    except Exception as e:
+        logger.error(f"Application startup failed: {e}", exc_info=True)
+        raise
 
 # Mount uploads directory
 app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
